@@ -22,7 +22,7 @@ Une fois ces informations fournies, l'outil génère un fichier `script.nsi` pr�
 1. Clonez ce dépôt :
 
    ```bash
-   git clone https://github.com/<votre-nom-d-utilisateur>/myNSIS.git
+   git clone https://github.com/Doalou/myNSIS.git
    cd myNSIS
    ```
 
