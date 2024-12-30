@@ -49,7 +49,7 @@ class Translations:
     def get_text(key: str) -> str:
         lang = Translations.get_language()
         if lang not in Translations.TRANSLATIONS:
-            lang = 'en'
+            lang = 'fr'
         return Translations.TRANSLATIONS[lang].get(key, key)
 
 def build_nsis_script(
@@ -157,7 +157,7 @@ class Application(ttk.Frame):
         self.setup_dnd()
 
     def create_widgets(self):
-        """Création des widgets avec un design amélioré"""
+        """Création des widgets"""
         # Menu
         self.create_menu()
         
@@ -275,7 +275,7 @@ class Application(ttk.Frame):
         """Affiche la boîte de dialogue À propos"""
         messagebox.showinfo(
             "À propos",
-            "myNSIS Generator\nVersion 1.0\n\nCréé par [Votre nom]\n2024"
+            "myNSIS Generator\nVersion 1.0\n\nCréé par Doalo\n2024"
         )
 
     def save_config(self):
