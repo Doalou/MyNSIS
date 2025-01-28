@@ -39,7 +39,6 @@ Une fois ces informations fournies, l'outil génère un fichier `script.nsi` pr�
    ```bash
    pip install -r requirements.txt
    ```
-   > **Remarque :** S'il n'y a pas de fichier `requirements.txt`, c'est que ce projet n'a pas de dépendance externe majeure.
 
 4. Lancez l'application :
 
