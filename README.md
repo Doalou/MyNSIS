@@ -1,72 +1,99 @@
 # myNSIS - Générateur de script NSIS
 
-Cet outil est une application Python qui permet de **générer automatiquement** un script NSIS (_Nullsoft Scriptable Install System_) pour créer un installateur Windows.  
-Il fournit une **interface graphique** avec Tkinter afin de sélectionner :
+![Python](https://img.shields.io/badge/Python-3.7%2B-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
+![NSIS](https://img.shields.io/badge/NSIS-3.0%2B-orange)
 
-- Le nom du programme  
-- Le chemin d'installation  
-- L'icône du programme (fichier `.ico`)  
-- Les différents fichiers à inclure dans l'installateur  
-- Un fichier “principal” (par exemple l'exécutable) pour créer les raccourcis  
+> Un générateur graphique de scripts NSIS pour créer facilement des installateurs Windows
 
-Une fois ces informations fournies, l'outil génère un fichier `script.nsi` prêt à être compilé avec **makensis**.
+## 🚀 Fonctionnalités
 
-## Prérequis
+- Interface graphique intuitive avec Tkinter
+- Support du glisser-déposer pour les fichiers
+- Prévisualisation des icônes
+- Gestion des configurations (sauvegarde/chargement)
+- Support multilingue (FR/EN)
+- Génération automatique des raccourcis (Bureau et Menu Démarrer)
+- Création automatique du désinstallateur
 
-- **Python 3.7+** (recommandé)  
-- Le module Tkinter (généralement inclus avec Python sur Windows, sinon installez `python3-tk` sur certaines distributions Linux)  
-- **NSIS** (pour compiler le script `.nsi` généré). Sur Windows, téléchargez NSIS depuis le site officiel : [nsis.sourceforge.io](https://nsis.sourceforge.io/).  
+## 📋 Prérequis
 
-## Installation
+- Python 3.7 ou supérieur
+- Modules Python :
+  ```
+  pillow>=10.0.0
+  tkinterdnd2>=0.3.0
+  ```
+- NSIS (Nullsoft Scriptable Install System)
+  - Windows : [Télécharger NSIS](https://nsis.sourceforge.io/Download)
+  - Linux : `sudo apt install nsis` (Ubuntu/Debian)
 
-1. Clonez ce dépôt :
+## 💻 Installation
 
+1. **Cloner le dépôt**
    ```bash
    git clone https://github.com/Doalou/myNSIS.git
    cd myNSIS
    ```
 
-2. (Optionnel) Créez et activez un environnement virtuel :
-
+2. **Créer un environnement virtuel (recommandé)**
    ```bash
    python -m venv venv
-   source venv/bin/activate    # Sur Linux/Mac
-   venv\Scripts\activate       # Sur Windows
+   source venv/bin/activate    # Linux/Mac
+   venv\Scripts\activate       # Windows
    ```
 
-3. Installez les dépendances s'il y en a (ici, il n'y a que Tkinter qui est par défaut déjà disponible sur la plupart des systèmes) :
-
+3. **Installer les dépendances**
    ```bash
    pip install -r requirements.txt
    ```
 
-4. Lancez l'application :
+## 🎯 Utilisation
 
+1. **Lancer l'application**
    ```bash
    python my_nsis_generator.py
    ```
 
-## Utilisation
+2. **Configuration de base**
+   - Nom du programme : nom affiché dans l'installateur
+   - Chemin d'installation : dossier cible (ex: `C:\Program Files\MonApp`)
+   - Icône : fichier `.ico` pour l'installateur et les raccourcis
 
-1. **Nom du programme** : Saisissez le nom tel qu'il apparaîtra dans l'installateur et dans les raccourcis.  
-2. **Chemin d'installation** : Le chemin où sera installé votre programme par défaut (ex. `C:\Program Files\MonProgramme`).  
-3. **Icône du programme** : Sélectionnez un fichier `.ico`.  
-4. **Ajouter des fichiers** : Sélectionnez un ou plusieurs fichiers à inclure dans l'installateur (exécutables, bibliothèques, ressources, etc.).  
-5. **Définir un fichier principal** : Sélectionnez le fichier qui servira pour le raccourci sur le Bureau et dans le Menu Démarrer (généralement l'exécutable principal).  
-6. **Générer le script** : Un fichier `script.nsi` sera généré dans le répertoire courant.  
+3. **Gestion des fichiers**
+   - Glisser-déposer ou utiliser le bouton "Ajouter fichier(s)"
+   - Sélectionner un fichier et cliquer sur "Définir principal" pour l'exécutable
+   - Possibilité de supprimer des fichiers de la liste
 
-Pour créer l'installeur Windows, exécutez ensuite depuis votre terminal (où NSIS est installé) :
+4. **Génération et compilation**
+   - Cliquer sur "Générer le script"
+   - Un fichier `script.nsi` est créé
+   - Compiler avec NSIS :
+     ```bash
+     makensis script.nsi
+     ```
+   - L'installateur `installer.exe` est généré
 
-```bash
-makensis script.nsi
-```
+## 🔧 Configuration avancée
 
-Cela générera un fichier `installer.exe` dans le répertoire courant.
+- **Fichier config.json** : stocke les paramètres par défaut
+- **Support multilingue** : fichiers de traduction dans le format :
+  ```json
+  {
+    "fr": {
+      "key": "value"
+    }
+  }
+  ```
 
-## Contributions
+## 🤝 Contribution
 
-Les PR et suggestions sont les bienvenues ! N’hésitez pas à forker ce dépôt et à proposer vos améliorations.
+1. Forker le projet
+2. Créer une branche (`git checkout -b feature/amelioration`)
+3. Commiter les changements (`git commit -am 'Ajout de fonctionnalité'`)
+4. Pusher la branche (`git push origin feature/amelioration`)
+5. Créer une Pull Request
 
-## Licence
+## 📝 Licence
 
-Ce projet est sous licence MIT. Consultez le fichier [LICENSE](LICENSE) pour plus de détails.
+Ce projet est sous licence MIT - voir le fichier [LICENSE](LICENSE) pour plus de détails.

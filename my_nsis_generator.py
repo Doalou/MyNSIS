@@ -1,26 +1,69 @@
+from __future__ import annotations
+
+import json
+import locale
+import logging
+import os
+from pathlib import Path
+from typing import Optional, List, Dict, Any, Final
+
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
-import json
-import os
 from tkinterdnd2 import DND_FILES, TkinterDnD
-import locale
+
+# Configuration du logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levellevel)s - %(message)s',
+    handlers=[
+        logging.FileHandler('app.log', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Constantes
+WINDOW_MIN_SIZE: Final = (600, 400)
+CONFIG_FILE: Final = "config.json"
+DEFAULT_CONFIG: Final[Dict[str, str]] = {
+    'nom_programme': '',
+    'chemin_installation': '',
+    'icone': ''
+}
+ICON_PREVIEW_SIZE: Final = (32, 32)
 
 class Config:
-    """Gestion de la configuration de l'application"""
-    CONFIG_FILE = "config.json"
+    """Gestion de la configuration de l'application avec pattern singleton"""
+    _instance: Optional[Config] = None
+    _config: Dict[str, Any] = {}
     
-    @staticmethod
-    def save_config(settings: dict):
-        with open(Config.CONFIG_FILE, 'w') as f:
-            json.dump(settings, f)
+    def __new__(cls) -> Config:
+        if cls._instance is None:
+            cls._instance = super(Config, cls).__new__(cls)
+            cls._instance._load_config()
+        return cls._instance
     
-    @staticmethod
-    def load_config() -> dict:
-        if os.path.exists(Config.CONFIG_FILE):
-            with open(Config.CONFIG_FILE, 'r') as f:
-                return json.load(f)
-        return {}
+    def _load_config(self) -> None:
+        try:
+            config_path = Path(CONFIG_FILE)
+            self._config = json.loads(config_path.read_text(encoding='utf-8')) if config_path.exists() else DEFAULT_CONFIG.copy()
+        except Exception as e:
+            logger.error(f"Erreur lors du chargement de la configuration: {e}")
+            self._config = DEFAULT_CONFIG.copy()
+    
+    def save_config(self, settings: dict) -> None:
+        try:
+            Path(CONFIG_FILE).write_text(json.dumps(settings, indent=4), encoding='utf-8')
+            self._config = settings
+            logger.info("Configuration sauvegardée avec succès")
+        except Exception as e:
+            logger.error(f"Erreur lors de la sauvegarde de la configuration: {e}")
+            messagebox.showerror("Erreur", "Impossible de sauvegarder la configuration")
+    
+    @property
+    def settings(self) -> dict:
+        return self._config.copy()
 
 class Translations:
     """Gestion du support multilingue"""
@@ -52,28 +95,32 @@ class Translations:
             lang = 'fr'
         return Translations.TRANSLATIONS[lang].get(key, key)
 
-def build_nsis_script(
-    nom_programme: str,
-    chemin_installation: str,
-    icone: str,
-    fichiers_a_installer: list[str],
-    fichier_principal: str
-) -> str:
-    """
-    Construit et renvoie une chaîne de caractères représentant
-    le script NSIS, basé sur les informations fournies.
+    @classmethod
+    def load_translations(cls, custom_file: Optional[str] = None) -> None:
+        """Permet de charger des traductions supplémentaires depuis un fichier"""
+        if custom_file and os.path.exists(custom_file):
+            try:
+                with open(custom_file, 'r', encoding='utf-8') as f:
+                    custom_translations = json.load(f)
+                    cls.TRANSLATIONS.update(custom_translations)
+            except Exception as e:
+                logger.error(f"Erreur lors du chargement des traductions: {e}")
 
-    :param nom_programme: Nom du programme (affiché dans l'installateur).
-    :param chemin_installation: Chemin par défaut où sera installé le programme.
-    :param icone: Chemin vers l'icône (au format .ico).
-    :param fichiers_a_installer: Liste des chemins de fichiers à inclure dans l'installateur.
-    :param fichier_principal: Chemin du fichier “principal” (exécutable ou autre).
-    :return: Script NSIS (au format .nsi) sous forme de chaîne de caractères.
-    """
-    # Nom de fichier principal à utiliser dans les raccourcis
-    fichier_principal_nom = fichier_principal.split("/")[-1]
+class NSISScriptBuilder:
+    """Classe utilitaire pour la construction du script NSIS"""
+    
+    @staticmethod
+    def build_script(
+        nom_programme: str,
+        chemin_installation: str,
+        icone: str,
+        fichiers_a_installer: List[str],
+        fichier_principal: str
+    ) -> str:
+        # Nom de fichier principal à utiliser dans les raccourcis
+        fichier_principal_nom = Path(fichier_principal).name
 
-    script = f'''!define APP_NAME "{nom_programme}"
+        template = f'''!define APP_NAME "{nom_programme}"
 !define INSTALL_DIR "{chemin_installation}"
 !define ICON "{icone}"
 
@@ -85,76 +132,77 @@ ShowInstDetails show
 
 Section "Installation"
     SetOutPath "$INSTDIR"
-'''
+    
+    # Fichiers à installer
+    {NSISScriptBuilder._generate_file_entries(fichiers_a_installer)}
 
-    # Ajout des fichiers à installer
-    for fichier in fichiers_a_installer:
-        script += f'    File "{fichier}"\n'
+    # Création des raccourcis
+    {NSISScriptBuilder._generate_shortcuts(fichier_principal_nom)}
 
-    script += f'''
-    ; Créer un raccourci sur le bureau
-    CreateShortcut "$DESKTOP\\${{APP_NAME}}.lnk" "$INSTDIR\\{fichier_principal_nom}" "" "$INSTDIR\\${{ICON}}"
-
-    ; Créer un raccourci dans le menu Démarrer
-    CreateDirectory "$SMPROGRAMS\\${{APP_NAME}}"
-    CreateShortcut "$SMPROGRAMS\\${{APP_NAME}}\\${{APP_NAME}}.lnk" "$INSTDIR\\{fichier_principal_nom}" "" "$INSTDIR\\${{ICON}}"
-    CreateShortcut "$SMPROGRAMS\\${{APP_NAME}}\\Désinstaller.lnk" "$INSTDIR\\uninstall.exe"
-
-    ; Enregistrer l'installateur pour la désinstallation
     WriteUninstaller "$INSTDIR\\uninstall.exe"
 SectionEnd
 
 Section "Uninstall"
-    ; Supprimer les fichiers installés
-'''
-    for fichier in fichiers_a_installer:
-        # On supprime juste le nom du fichier tel qu'il est dans le dossier d'installation
-        script += f'    Delete "$INSTDIR\\{fichier.split("/")[-1]}"\n'
+    {NSISScriptBuilder._generate_uninstall_commands(fichiers_a_installer)}
+SectionEnd'''
+        return template
 
-    script += '''
-    ; Supprimer les raccourcis
-    Delete "$DESKTOP\\${APP_NAME}.lnk"
-    Delete "$SMPROGRAMS\\${APP_NAME}\\${APP_NAME}.lnk"
-    Delete "$SMPROGRAMS\\${APP_NAME}\\Désinstaller.lnk"
-    RMDir "$SMPROGRAMS\\${APP_NAME}"
+    @staticmethod
+    def _generate_file_entries(files: List[str]) -> str:
+        return "\n".join(f'    File "{file}"' for file in files)
 
-    ; Supprimer le répertoire d'installation
-    RMDir "$INSTDIR"
+    @staticmethod
+    def _generate_shortcuts(main_file: str) -> str:
+        return f'''    CreateShortcut "$DESKTOP\\${{APP_NAME}}.lnk" "$INSTDIR\\{main_file}" "" "$INSTDIR\\${{ICON}}"
+    CreateDirectory "$SMPROGRAMS\\${{APP_NAME}}"
+    CreateShortcut "$SMPROGRAMS\\${{APP_NAME}}\\${{APP_NAME}}.lnk" "$INSTDIR\\{main_file}" "" "$INSTDIR\\${{ICON}}"
+    CreateShortcut "$SMPROGRAMS\\${{APP_NAME}}\\Désinstaller.lnk" "$INSTDIR\\uninstall.exe"'''
 
-    ; Supprimer le désinstallateur
+    @staticmethod
+    def _generate_uninstall_commands(files: List[str]) -> str:
+        file_deletions = "\n".join(f'    Delete "$INSTDIR\\{Path(file).name}"' for file in files)
+        return f'''{file_deletions}
+    Delete "$DESKTOP\\${{APP_NAME}}.lnk"
+    Delete "$SMPROGRAMS\\${{APP_NAME}}\\${{APP_NAME}}.lnk"
+    Delete "$SMPROGRAMS\\${{APP_NAME}}\\Désinstaller.lnk"
+    RMDir "$SMPROGRAMS\\${{APP_NAME}}"
     Delete "$INSTDIR\\uninstall.exe"
-SectionEnd
-'''
-    return script
-
+    RMDir "$INSTDIR"'''
 
 class Application(ttk.Frame):
     """
     Classe principale de l'application Tkinter pour générer un script NSIS.
     """
-    def __init__(self, master=None):
+    def __init__(self, master: Optional[tk.Tk] = None):
         super().__init__(master)
         self.master = master
+        self.config = Config()
+        self.fichiers_a_installer: List[str] = []
+        self.fichier_principal: Optional[str] = None
+        
+        self.setup_window()
+        self.setup_variables()
+        self.create_widgets()
+        self.setup_dnd()
+        self.load_saved_config()
+
+    def setup_window(self) -> None:
+        """Configuration de la fenêtre principale"""
+        self.master.title(Translations.get_text('app_title'))
+        self.master.minsize(*WINDOW_MIN_SIZE)
         self.pack(padx=20, pady=20, fill=tk.BOTH, expand=True)
+
+    def setup_variables(self) -> None:
+        """Initialisation des variables"""
+        self.nom_programme_var = tk.StringVar()
+        self.chemin_installation_var = tk.StringVar()
+        self.icone_var = tk.StringVar(value="")
+        self.icon_preview: Optional[ImageTk.PhotoImage] = None
 
         # Style
         self.style = ttk.Style()
         self.style.configure('Header.TLabel', font=('Helvetica', 12, 'bold'))
         self.style.configure('Section.TLabelframe', padding=10)
-
-        # Variables
-        self.nom_programme_var = tk.StringVar()
-        self.chemin_installation_var = tk.StringVar()
-        self.icone_var = tk.StringVar()
-        self.fichiers_a_installer = []
-        self.fichier_principal = None
-        self.icon_preview = None
-
-        # Chargement de la config
-        self.load_saved_config()
-        
-        self.create_widgets()
-        self.setup_dnd()
 
     def create_widgets(self):
         """Création des widgets"""
@@ -285,15 +333,40 @@ class Application(ttk.Frame):
             'chemin_installation': self.chemin_installation_var.get(),
             'icone': self.icone_var.get()
         }
-        Config.save_config(config)
+        self.config.save_config(config)
         messagebox.showinfo("Info", "Configuration sauvegardée")
 
     def load_saved_config(self):
         """Charge la configuration sauvegardée"""
-        config = Config.load_config()
+        config = self.config.settings
         self.nom_programme_var.set(config.get('nom_programme', ''))
         self.chemin_installation_var.set(config.get('chemin_installation', ''))
         self.icone_var.set(config.get('icone', ''))
+
+    def load_config(self):
+        """Charge une configuration depuis un fichier"""
+        try:
+            file_path = filedialog.askopenfilename(
+                defaultextension=".json",
+                filetypes=[("Fichiers JSON", "*.json")],
+                title="Charger une configuration"
+            )
+            if file_path:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    self.nom_programme_var.set(config.get('nom_programme', ''))
+                    self.chemin_installation_var.set(config.get('chemin_installation', ''))
+                    self.icone_var.set(config.get('icone', ''))
+                    if config.get('icone'):
+                        self.update_icon_preview(config['icone'])
+                    logger.info(f"Configuration chargée depuis {file_path}")
+                    messagebox.showinfo("Succès", "Configuration chargée avec succès")
+        except Exception as e:
+            logger.error(f"Erreur lors du chargement de la configuration: {e}")
+            messagebox.showerror(
+                "Erreur",
+                "Impossible de charger la configuration"
+            )
 
     def choisir_icone(self):
         """Ouvre un dialog pour sélectionner le fichier .ico."""
@@ -339,42 +412,55 @@ class Application(ttk.Frame):
             self.fichier_principal = None
             messagebox.showinfo("Info", "Le fichier principal a été supprimé. Veuillez en définir un autre.")
 
-    def generer_script(self):
-        """
-        Génère le fichier script.nsi à partir des infos récoltées (nom,
-        chemin, icône, fichiers). Affiche un message de confirmation.
-        """
-        nom_programme = self.nom_programme_var.get().strip()
-        chemin_installation = self.chemin_installation_var.get().strip()
-        icone = self.icone_var.get().strip()
+    def generer_script(self) -> None:
+        """Génère le script NSIS avec validation des entrées"""
+        try:
+            # Validation des entrées
+            if not self.validate_inputs():
+                return
+                
+            script = NSISScriptBuilder.build_script(
+                self.nom_programme_var.get().strip(),
+                self.chemin_installation_var.get().strip(),
+                self.icone_var.get().strip(),
+                self.fichiers_a_installer,
+                self.fichier_principal
+            )
+            
+            script_path = Path("script.nsi")
+            script_path.write_text(script, encoding='utf-8')
+            
+            messagebox.showinfo(
+                "Succès",
+                f"Le script NSIS a été généré avec succès:\n{script_path.absolute()}"
+            )
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la génération du script: {e}")
+            messagebox.showerror(
+                "Erreur",
+                "Une erreur est survenue lors de la génération du script."
+            )
 
-        # Vérifications basiques
-        if not nom_programme:
+    def validate_inputs(self) -> bool:
+        """Valide les entrées utilisateur"""
+        if not self.nom_programme_var.get().strip():
             messagebox.showwarning("Attention", "Veuillez renseigner un nom de programme.")
-            return
-        if not chemin_installation:
+            return False
+            
+        if not self.chemin_installation_var.get().strip():
             messagebox.showwarning("Attention", "Veuillez renseigner un chemin d'installation.")
-            return
+            return False
+            
         if not self.fichiers_a_installer:
             messagebox.showwarning("Attention", "Veuillez ajouter au moins un fichier à installer.")
-            return
+            return False
+            
         if not self.fichier_principal:
             messagebox.showwarning("Attention", "Veuillez définir un fichier principal.")
-            return
-
-        script = build_nsis_script(
-            nom_programme,
-            chemin_installation,
-            icone,
-            self.fichiers_a_installer,
-            self.fichier_principal
-        )
-
-        # Enregistrement du script NSIS
-        with open("script.nsi", "w", encoding="utf-8") as f:
-            f.write(script)
-
-        messagebox.showinfo("Information", "Le script NSIS a été généré avec succès :\nscript.nsi")
+            return False
+            
+        return True
 
     def choisir_chemin(self):
         """Ouvre un dialog pour sélectionner le chemin d'installation."""
