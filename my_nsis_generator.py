@@ -26,12 +26,14 @@ logger = logging.getLogger(__name__)
 # Constantes
 WINDOW_MIN_SIZE: Final = (600, 400)
 CONFIG_FILE: Final = "config.json"
+DEFAULT_ICON: Final = Path(__file__).parent / "my.ico"
 DEFAULT_CONFIG: Final[Dict[str, str]] = {
     'nom_programme': '',
     'chemin_installation': '',
-    'icone': ''
+    'icone': str(DEFAULT_ICON) if DEFAULT_ICON.exists() else ''
 }
 ICON_PREVIEW_SIZE: Final = (32, 32)
+NSIS_EXECUTABLE: Final = "makensis.exe"
 
 class Config:
     """Gestion de la configuration de l'application avec pattern singleton"""
@@ -73,14 +75,12 @@ class Translations:
             'program_name': "Nom du programme :",
             'install_path': "Chemin d'installation :",
             'program_icon': "Icône du programme (.ico) :",
-            # ... autres traductions
         },
         'en': {
             'app_title': "myNSIS - NSIS Script Generator",
             'program_name': "Program name:",
             'install_path': "Installation path:",
             'program_icon': "Program icon (.ico):",
-            # ... autres traductions
         }
     }
     
@@ -91,7 +91,7 @@ class Translations:
     @staticmethod
     def get_text(key: str) -> str:
         lang = Translations.get_language()
-        if lang not in Translations.TRANSLATIONS:
+        if (lang not in Translations.TRANSLATIONS):
             lang = 'fr'
         return Translations.TRANSLATIONS[lang].get(key, key)
 
@@ -117,7 +117,6 @@ class NSISScriptBuilder:
         fichiers_a_installer: List[str],
         fichier_principal: str
     ) -> str:
-        # Nom de fichier principal à utiliser dans les raccourcis
         fichier_principal_nom = Path(fichier_principal).name
 
         template = f'''!define APP_NAME "{nom_programme}"
@@ -169,6 +168,24 @@ SectionEnd'''
     Delete "$INSTDIR\\uninstall.exe"
     RMDir "$INSTDIR"'''
 
+class NSISTemplate:
+    """Classe pour gérer les templates NSIS"""
+    
+    @staticmethod
+    def get_templates() -> Dict[str, str]:
+        return {
+            'Standard': 'standard_template.nsi',
+            'Minimal': 'minimal_template.nsi',
+            'Complet': 'complete_template.nsi'
+        }
+    
+    @staticmethod
+    def load_template(template_name: str) -> str:
+        template_path = Path(f"templates/{template_name}")
+        if template_path.exists():
+            return template_path.read_text(encoding='utf-8')
+        return ""
+
 class Application(ttk.Frame):
     """
     Classe principale de l'application Tkinter pour générer un script NSIS.
@@ -179,9 +196,10 @@ class Application(ttk.Frame):
         self.config = Config()
         self.fichiers_a_installer: List[str] = []
         self.fichier_principal: Optional[str] = None
+        self.selected_template = 'Standard'
         
-        self.setup_window()
         self.setup_variables()
+        self.setup_window()
         self.create_widgets()
         self.setup_dnd()
         self.load_saved_config()
@@ -190,14 +208,18 @@ class Application(ttk.Frame):
         """Configuration de la fenêtre principale"""
         self.master.title(Translations.get_text('app_title'))
         self.master.minsize(*WINDOW_MIN_SIZE)
+        if DEFAULT_ICON.exists():
+            self.master.iconbitmap(DEFAULT_ICON)
         self.pack(padx=20, pady=20, fill=tk.BOTH, expand=True)
 
     def setup_variables(self) -> None:
         """Initialisation des variables"""
+        # Variables de base
         self.nom_programme_var = tk.StringVar()
         self.chemin_installation_var = tk.StringVar()
         self.icone_var = tk.StringVar(value="")
         self.icon_preview: Optional[ImageTk.PhotoImage] = None
+        self.template_var = tk.StringVar(value=self.selected_template)
 
         # Style
         self.style = ttk.Style()
@@ -251,9 +273,15 @@ class Application(ttk.Frame):
         
         buttons_frame = ttk.Frame(files_frame)
         buttons_frame.pack(fill=tk.X)
-        ttk.Button(buttons_frame, text="Ajouter fichier(s)", command=self.ajouter_fichier).pack(side=tk.LEFT, padx=2)
-        ttk.Button(buttons_frame, text="Définir principal", command=self.definir_fichier_principal).pack(side=tk.LEFT, padx=2)
-        ttk.Button(buttons_frame, text="Supprimer", command=self.supprimer_fichier).pack(side=tk.LEFT, padx=2)
+        ttk.Button(buttons_frame, text="Ajouter fichier(s)", 
+                  command=self.ajouter_fichier, 
+                  style='Custom.TButton').pack(side=tk.LEFT, padx=2)
+        ttk.Button(buttons_frame, text="Définir principal", 
+                  command=self.definir_fichier_principal, 
+                  style='Custom.TButton').pack(side=tk.LEFT, padx=2)
+        ttk.Button(buttons_frame, text="Supprimer", 
+                  command=self.supprimer_fichier, 
+                  style='Custom.TButton').pack(side=tk.LEFT, padx=2)
 
         # Liste des fichiers avec scrollbar
         list_frame = ttk.Frame(files_frame)
@@ -273,7 +301,24 @@ class Application(ttk.Frame):
         buttons_frame = ttk.Frame(self)
         buttons_frame.pack(fill=tk.X)
         ttk.Button(buttons_frame, text="Générer le script", command=self.generer_script).pack(side=tk.LEFT, padx=5)
+        ttk.Button(buttons_frame, text="Compiler", command=self.compile_script).pack(side=tk.LEFT, padx=5)
         ttk.Button(buttons_frame, text="Quitter", command=self.quit_app).pack(side=tk.RIGHT)
+
+        # Ajouter un nouvel onglet pour la prévisualisation
+        self.preview_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.preview_frame, text="Prévisualisation")
+        
+        # Zone de prévisualisation du script
+        preview_label = ttk.Label(self.preview_frame, text="Script NSIS généré :")
+        preview_label.pack(anchor='w')
+        
+        # Configuration initiale du thème pour la zone de prévisualisation
+        self.preview_text = tk.Text(
+            self.preview_frame,
+            height=20,
+            width=80
+        )
+        self.preview_text.pack(fill=tk.BOTH, expand=True)
 
     def create_menu(self):
         """Création de la barre de menu"""
@@ -292,6 +337,17 @@ class Application(ttk.Frame):
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Aide", menu=help_menu)
         help_menu.add_command(label="À propos", command=self.show_about)
+        
+        # Menu des templates uniquement
+        view_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Affichage", menu=view_menu)
+        template_menu = tk.Menu(view_menu, tearoff=0)
+        view_menu.add_cascade(label="Template", menu=template_menu)
+        for template_name in NSISTemplate.get_templates():
+            template_menu.add_radiobutton(label=template_name, 
+                                        variable=self.template_var,
+                                        value=template_name,
+                                        command=self.update_preview)
 
     def setup_dnd(self):
         """Configuration du drag and drop"""
@@ -317,13 +373,11 @@ class Application(ttk.Frame):
         except Exception:
             self.preview_canvas.delete("all")
 
-    # ... (autres méthodes existantes avec ajustements mineurs)
-
     def show_about(self):
         """Affiche la boîte de dialogue À propos"""
         messagebox.showinfo(
             "À propos",
-            "myNSIS Generator\nVersion 1.0\n\nCréé par Doalo\n2024"
+            "myNSIS Generator\nVersion 1.1\n\nCréé par Doalo\n2024"
         )
 
     def save_config(self):
@@ -341,7 +395,13 @@ class Application(ttk.Frame):
         config = self.config.settings
         self.nom_programme_var.set(config.get('nom_programme', ''))
         self.chemin_installation_var.set(config.get('chemin_installation', ''))
-        self.icone_var.set(config.get('icone', ''))
+        icon_path = config.get('icone', '')
+        self.icone_var.set(icon_path)
+        if icon_path and Path(icon_path).exists():
+            self.update_icon_preview(icon_path)
+        elif DEFAULT_ICON.exists():
+            self.icone_var.set(str(DEFAULT_ICON))
+            self.update_icon_preview(DEFAULT_ICON)
 
     def load_config(self):
         """Charge une configuration depuis un fichier"""
@@ -412,12 +472,12 @@ class Application(ttk.Frame):
             self.fichier_principal = None
             messagebox.showinfo("Info", "Le fichier principal a été supprimé. Veuillez en définir un autre.")
 
-    def generer_script(self) -> None:
+    def generer_script(self) -> bool:
         """Génère le script NSIS avec validation des entrées"""
         try:
             # Validation des entrées
             if not self.validate_inputs():
-                return
+                return False
                 
             script = NSISScriptBuilder.build_script(
                 self.nom_programme_var.get().strip(),
@@ -441,6 +501,10 @@ class Application(ttk.Frame):
                 "Erreur",
                 "Une erreur est survenue lors de la génération du script."
             )
+            return False
+
+        self.update_preview()
+        return True
 
     def validate_inputs(self) -> bool:
         """Valide les entrées utilisateur"""
@@ -471,6 +535,55 @@ class Application(ttk.Frame):
     def quit_app(self):
         """Quitte l'application."""
         self.master.destroy()
+
+    def update_preview(self) -> None:
+        """Met à jour la prévisualisation du script"""
+        if not self.validate_inputs():
+            self.preview_text.delete('1.0', tk.END)
+            self.preview_text.insert('1.0', "Remplissez tous les champs requis pour voir la prévisualisation")
+            return
+
+        try:
+            script = NSISScriptBuilder.build_script(
+                self.nom_programme_var.get().strip(),
+                self.chemin_installation_var.get().strip(),
+                self.icone_var.get().strip(),
+                self.fichiers_a_installer,
+                self.fichier_principal
+            )
+            self.preview_text.delete('1.0', tk.END)
+            self.preview_text.insert('1.0', script)
+        except Exception as e:
+            self.preview_text.delete('1.0', tk.END)
+            self.preview_text.insert('1.0', f"Erreur de prévisualisation: {str(e)}")
+
+    def compile_script(self) -> None:
+        """Compile le script NSIS directement"""
+        if not self.generer_script():
+            return
+
+        try:
+            # Vérifier si NSIS est installé
+            if not Path(NSIS_EXECUTABLE).exists():
+                messagebox.showerror("Erreur", "NSIS n'est pas installé ou introuvable")
+                return
+
+            # Compiler le script
+            import subprocess
+            result = subprocess.run([NSIS_EXECUTABLE, "script.nsi"], 
+                                 capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                messagebox.showinfo("Succès", 
+                                  "L'installateur a été compilé avec succès!")
+            else:
+                messagebox.showerror("Erreur", 
+                                   f"Erreur lors de la compilation:\n{result.stderr}")
+                
+        except Exception as e:
+            logger.error(f"Erreur lors de la compilation: {e}")
+            messagebox.showerror("Erreur", 
+                               "Une erreur est survenue lors de la compilation")
 
 
 if __name__ == "__main__":
